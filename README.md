@@ -278,7 +278,7 @@ Para manter este README objetivo, as instruções detalhadas de instalação de 
 ### 1. Clonar o repositório
 
 ```bash
-git clone https://github.com/lucianostoppalsp/desafio_arquiteto_dados.git
+git clone https://github.com/lucianostoppalsp/desafio_arquiteto_dados_verity.git
 cd desafio-arquiteto-dados
 ```
 
