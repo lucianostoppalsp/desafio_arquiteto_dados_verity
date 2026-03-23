@@ -279,7 +279,7 @@ Para manter este README objetivo, as instruções detalhadas de instalação de 
 
 ```bash
 git clone https://github.com/lucianostoppalsp/desafio_arquiteto_dados_verity.git
-cd desafio-arquiteto-dados
+cd desafio_arquiteto_dados_verity
 ```
 
 ### 2. Configurar variáveis de ambiente
