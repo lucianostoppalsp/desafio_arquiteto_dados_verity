@@ -1,0 +1,188 @@
+stoppa@StoppaDell:/home/projetos/desafio-arquiteto-dados$ docker compose exec -T postgres psql -U airflow -d challenge_db < sql/load_process_validation_queries.sql
+reference_date = 2026-03-20
+lookback_days = 7
+start_date = 2026-03-13
+end_date = 2026-03-20
+=========================================================
+1) Contagens básicas
+=========================================================
+ orders_raw_count 
+------------------
+               13
+(1 row)
+
+ orders_events_dedup_count
+---------------------------
+                        11
+(1 row)
+
+ customer_orders_daily_count
+-----------------------------
+                           8
+(1 row)
+
+ orders_daily_summary_count
+----------------------------
+                          2
+(1 row)
+
+=========================================================
+2) Comparação das linhas da Raw com a refined por business_date
+Serve para observar redução de volume após a deduplicação.
+=========================================================
+ business_date | raw_rows
+---------------+----------
+ 2026-03-15    |        7
+ 2026-03-20    |        6
+(2 rows)
+
+ business_date | dedup_rows
+---------------+------------
+ 2026-03-15    |          6
+ 2026-03-20    |          5
+(2 rows)
+
+
+Linhas na orders_daily_summary
+=========================================================
+3) Na tabela da camada refined não pode haver duplicidades. Esta query serve para diagnosticar isso.
+Chave de deduplicação:
+(order_id, customer_id, status, amount, business_date)
+Resultado esperado: zero linhas.
+=========================================================
+ order_id | customer_id | status | amount | business_date | qty
+----------+-------------+--------+--------+---------------+-----
+(0 rows)
+
+=========================================================
+4) Lista as linhas candidatas à duplicidade na tabela raw para comparar contra a refined
+=========================================================
+ order_id | customer_id | status  | amount | business_date | qty |   min_ingested_at   |   max_ingested_at
+----------+-------------+---------+--------+---------------+-----+---------------------+---------------------
+     1017 |         501 | paid    | 120.00 | 2026-03-15    |   2 | 2026-03-15 08:00:00 | 2026-03-15 08:03:00
+     1021 |         501 | pending | 260.00 | 2026-03-20    |   2 | 2026-03-20 08:00:00 | 2026-03-20 08:04:00
+(2 rows)
+
+============================================================
+5) Lista as linhas carregadas na refined na janela de tempo
+============================================================
+ event_id | order_id | customer_id |  status  | amount | business_date |     ingested_at     |      source_file       |       processing_ts
+----------+----------+-------------+----------+--------+---------------+---------------------+------------------------+----------------------------
+       28 |     1017 |         501 | paid     | 120.00 | 2026-03-15    | 2026-03-15 08:03:00 | batch_006_retry        | 2026-03-21 23:13:53.260444
+       30 |     1018 |         502 | paid     | 240.00 | 2026-03-15    | 2026-03-16 07:55:00 | batch_006_update_late  | 2026-03-21 23:13:53.260444
+       29 |     1018 |         502 | pending  | 240.00 | 2026-03-15    | 2026-03-15 08:10:00 | batch_006              | 2026-03-21 23:13:53.260444
+       32 |     1019 |         503 | paid     | 180.00 | 2026-03-15    | 2026-03-17 09:20:00 | batch_006_update_late2 | 2026-03-21 23:13:53.260444
+       31 |     1019 |         503 | pending  | 180.00 | 2026-03-15    | 2026-03-15 08:30:00 | batch_006              | 2026-03-21 23:13:53.260444
+       33 |     1020 |         505 | canceled |  55.00 | 2026-03-15    | 2026-03-15 10:00:00 | batch_006              | 2026-03-21 23:13:53.260444
+       35 |     1021 |         501 | pending  | 260.00 | 2026-03-20    | 2026-03-20 08:04:00 | batch_007_retry        | 2026-03-23 01:06:51.765437
+       36 |     1022 |         502 | canceled | 145.00 | 2026-03-20    | 2026-03-20 08:15:00 | batch_007              | 2026-03-23 01:06:51.765437
+       37 |     1023 |         504 | paid     | 390.00 | 2026-03-20    | 2026-03-21 06:50:00 | batch_late_007         | 2026-03-23 01:06:51.765437
+       39 |     1024 |         505 | canceled |  99.00 | 2026-03-20    | 2026-03-22 11:00:00 | batch_007_update_late  | 2026-03-23 01:06:51.765437
+       38 |     1024 |         505 | pending  |  99.00 | 2026-03-20    | 2026-03-20 09:10:00 | batch_007              | 2026-03-23 01:06:51.765437
+(11 rows)
+
+============================================================
+6) Lista as linhas carregadas na camada analytics com agrupamento por cliente/business date na janela de tempo
+============================================================
+ business_date | customer_id | total_orders | pending_orders | paid_orders | canceled_orders | total_amount | pending_amount | paid_amount | canceled_amount |  last_ingested_at   |       processing_ts
+---------------+-------------+--------------+----------------+-------------+-----------------+--------------+----------------+-------------+-----------------+---------------------+----------------------------
+ 2026-03-15    |         501 |            1 |              0 |           1 |               0 |       120.00 |           0.00 |      120.00 |            0.00 | 2026-03-15 08:03:00 | 2026-03-21 23:14:02.23598
+ 2026-03-15    |         502 |            1 |              0 |           1 |               0 |       240.00 |           0.00 |      240.00 |            0.00 | 2026-03-16 07:55:00 | 2026-03-21 23:14:02.23598
+ 2026-03-15    |         503 |            1 |              0 |           1 |               0 |       180.00 |           0.00 |      180.00 |            0.00 | 2026-03-17 09:20:00 | 2026-03-21 23:14:02.23598
+ 2026-03-15    |         505 |            1 |              0 |           0 |               1 |        55.00 |           0.00 |        0.00 |           55.00 | 2026-03-15 10:00:00 | 2026-03-21 23:14:02.23598
+ 2026-03-20    |         501 |            1 |              1 |           0 |               0 |       260.00 |         260.00 |        0.00 |            0.00 | 2026-03-20 08:04:00 | 2026-03-23 01:07:02.941628
+ 2026-03-20    |         502 |            1 |              0 |           0 |               1 |       145.00 |           0.00 |        0.00 |          145.00 | 2026-03-20 08:15:00 | 2026-03-23 01:07:02.941628
+ 2026-03-20    |         504 |            1 |              0 |           1 |               0 |       390.00 |           0.00 |      390.00 |            0.00 | 2026-03-21 06:50:00 | 2026-03-23 01:07:02.941628
+ 2026-03-20    |         505 |            1 |              0 |           0 |               1 |        99.00 |           0.00 |        0.00 |           99.00 | 2026-03-22 11:00:00 | 2026-03-23 01:07:02.941628
+(8 rows)
+
+============================================================
+7) Refaz a seleção das linhas para a customer_orders_daily a partir da refined
+Valida a lógica da captura da linha mais recente de cada pedido
+Comparar o resultado com a query acima; se der divergência, tem problema no processo de carga
+============================================================
+ business_date | customer_id | total_orders | pending_orders | paid_orders | canceled_orders | total_amount | pending_amount | paid_amount | canceled_amount |  last_ingested_at
+---------------+-------------+--------------+----------------+-------------+-----------------+--------------+----------------+-------------+-----------------+---------------------
+ 2026-03-15    |         501 |            1 |              0 |           1 |               0 |       120.00 |              
+0 |      120.00 |               0 | 2026-03-15 08:03:00
+ 2026-03-15    |         502 |            1 |              0 |           1 |               0 |       240.00 |              
+0 |      240.00 |               0 | 2026-03-16 07:55:00
+ 2026-03-15    |         503 |            1 |              0 |           1 |               0 |       180.00 |              
+0 |      180.00 |               0 | 2026-03-17 09:20:00
+ 2026-03-15    |         505 |            1 |              0 |           0 |               1 |        55.00 |              
+0 |           0 |           55.00 | 2026-03-15 10:00:00
+ 2026-03-20    |         501 |            1 |              1 |           0 |               0 |       260.00 |         260.00 |           0 |               0 | 2026-03-20 08:04:00
+ 2026-03-20    |         502 |            1 |              0 |           0 |               1 |       145.00 |              
+0 |           0 |          145.00 | 2026-03-20 08:15:00
+ 2026-03-20    |         504 |            1 |              0 |           1 |               0 |       390.00 |              
+0 |      390.00 |               0 | 2026-03-21 06:50:00
+ 2026-03-20    |         505 |            1 |              0 |           0 |               1 |        99.00 |              
+0 |           0 |           99.00 | 2026-03-22 11:00:00
+(8 rows)
+
+============================================================
+8) Não podemos ter duplicidade de linhas usando a chave business_date/customer_id na customer_orders_daily
+Resultado esperado: 0 linhas.
+============================================================
+ business_date | customer_id | qty
+---------------+-------------+-----
+(0 rows)
+
+============================================================
+9) Lista linhas carregadas na daily summary na janela de tempo
+============================================================
+ business_date | total_customers | total_orders | pending_orders | paid_orders | canceled_orders | total_amount | pending_amount | paid_amount | canceled_amount |  last_ingested_at   |       processing_ts
+---------------+-----------------+--------------+----------------+-------------+-----------------+--------------+----------------+-------------+-----------------+---------------------+----------------------------
+ 2026-03-15    |               4 |            4 |              0 |           3 |               1 |       595.00 |          
+ 0.00 |      540.00 |           55.00 | 2026-03-17 09:20:00 | 2026-03-21 23:14:10.889007
+ 2026-03-20    |               4 |            4 |              1 |           1 |               2 |       894.00 |         260.00 |      390.00 |          244.00 | 2026-03-22 11:00:00 | 2026-03-23 01:07:14.246783
+(2 rows)
+
+============================================================
+10) Refaz a seleção das linhas para a orders_daily_summary a partir da customer_orders_daily
+Valida a lógica da sumarização por business_date
+Comparar o resultado com a query acima; se der divergência, tem problema no pipeline
+============================================================
+ business_date | total_customers | total_orders | pending_orders | paid_orders | canceled_orders | total_amount | pending_amount | paid_amount | canceled_amount |  last_ingested_at
+---------------+-----------------+--------------+----------------+-------------+-----------------+--------------+----------------+-------------+-----------------+---------------------
+ 2026-03-15    |               4 |            4 |              0 |           3 |               1 |       595.00 |          
+ 0.00 |      540.00 |           55.00 | 2026-03-17 09:20:00
+ 2026-03-20    |               4 |            4 |              1 |           1 |               2 |       894.00 |         260.00 |      390.00 |          244.00 | 2026-03-22 11:00:00
+(2 rows)
+
+============================================================
+11) Não podem existir linhas duplicadas com mesma business_date em orders_daily_summary
+Resultado esperado: 0 linhas.
+============================================================
+ business_date | qty
+---------------+-----
+(0 rows)
+
+============================================================
+12) Não podemos ter a coluna processing_ts com valor null em qualquer das tabelas carregadas pelo pipeline
+Resultado esperado: 0 linhas em todas as 3 queries.
+============================================================
+ null_processing_ts_refined
+----------------------------
+                          0
+(1 row)
+
+ null_processing_ts_customer
+-----------------------------
+                           0
+(1 row)
+
+ null_processing_ts_summary
+----------------------------
+                          0
+(1 row)
+
+============================================================
+13) Listagem completa da tabela final orders_daily_summary independente da janela de tempo
+============================================================
+ business_date | total_customers | total_orders | pending_orders | paid_orders | canceled_orders | total_amount | pending_amount | paid_amount | canceled_amount
+---------------+-----------------+--------------+----------------+-------------+-----------------+--------------+----------------+-------------+-----------------
+ 2026-03-15    |               4 |            4 |              0 |           3 |               1 |       595.00 |          
+ 0.00 |      540.00 |           55.00
+ 2026-03-20    |               4 |            4 |              1 |           1 |               2 |       894.00 |         260.00 |      390.00 |          244.00
+(2 rows)
